@@ -62,16 +62,41 @@ def dataFormat(fp, feature_name, word_dict, one_hot=True):
         vec = sklearn.feature_extraction.DictVectorizer()
         category_features_matrix = vec.fit_transform(category_features_list)
         category_features_name = vec.get_feature_names()
-        return id_to_row, category_features_matrix, category_features_name, docs_matrix, word_dict
+        return id_to_row, category_features_matrix, category_features_name, docs_matrix
     else:
-        return id_to_row, category_features_list, docs_matrix, word_dict
+        return id_to_row, category_features_list, docs_matrix
 
+def build_dict(fps, w_freq):
+    words = []
+    for fp in fps:
+        with open(fp) as f:
+            for line in tqdm(f):
+                line = line.strip().split('\001')[-1]
+                line = line.split()
+                words.extend(line)
+    words_freq = collections.Counter(words)
+    word_dict = {k: v for k, v in words_freq.items() if v >= w_freq}
+    word_dict = {k: v for v, k in enumerate(word_dict.keys(), 2)}
+    word_dict['__pad__'] = 0
+    word_dict['__unk__'] = 1
+    print('n_words: {}'.format(len(word_dict)))
+    return word_dict
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--datain', default='../Data/multi_data/multi_data')
     parser.add_argument('--dataout', default='./data/interview')
+    parser.add_argument('--word_freq', type=int, default=5)
     args = parser.parse_args()
+
+    fps = ['{}.profile.job'.format(args.datain), '{}.profile.expect'.format(args.datain)]
+    word_dict = build_dict(fps, args.word_freq)
+    idx, cfs, cfn, docs = dataFormat(
+        fp='{}.profile.job'.format(args.datain),
+        feature_name=job_features,
+        word_dict=word_dict,
+        one_hot=True
+    )
 
 
 
