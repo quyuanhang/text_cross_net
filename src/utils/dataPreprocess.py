@@ -1,6 +1,4 @@
-import sys
-import sklearn
-import pandas as pd
+from sklearn import feature_extraction
 import argparse
 import collections
 from tqdm import tqdm
@@ -39,7 +37,7 @@ def dataFormat(fp, feature_name, word_dict, one_hot=True):
     with open(fp) as f:
         data = f.read().strip().split('\n')
     print('split raw data ...')
-    ids_list, category_features_list, docs_list = [], [], []
+    ids_list, category_features_list, docs_list, raw_doc_list = [], [], [], []
     for line in tqdm(data):
         features = line.split('\001')
         if len(features) != n_feature:
@@ -53,18 +51,20 @@ def dataFormat(fp, feature_name, word_dict, one_hot=True):
             category_features = dict(zip(feature_name[1:-1], category_features))
         category_features_list.append(category_features)
         # text feature
-        doc = re.split('[\001\n\t ]+', features[-1].strip())[:100]
+        # doc = re.split('[\001\n\t ]+', features[-1].strip())[:100]
+        doc = re.split('[\001\n\t ]+', features[-1].strip())
+        raw_doc_list.append(doc)
         doc = [word_dict.get(word, 0) for word in doc]
         docs_list.append(doc)
     id_to_row = {k: v for v, k in enumerate(ids_list)}
     docs_matrix = np.array(docs_list)
     if one_hot:
-        vec = sklearn.feature_extraction.DictVectorizer()
-        category_features_matrix = vec.fit_transform(category_features_list)
+        vec = feature_extraction.DictVectorizer()
+        category_features_matrix = vec.fit_transform(category_features_list).todok()
         category_features_name = vec.get_feature_names()
-        return id_to_row, category_features_matrix, category_features_name, docs_matrix
+        return id_to_row, category_features_matrix, category_features_name, docs_matrix, raw_doc_list
     else:
-        return id_to_row, category_features_list, docs_matrix
+        return id_to_row, category_features_list, docs_matrix, raw_doc_list
 
 def build_dict(fps, w_freq):
     words = []
@@ -98,6 +98,7 @@ if __name__ == '__main__':
         one_hot=True
     )
 
+    print('done')
 
 
 
