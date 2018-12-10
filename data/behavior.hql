@@ -87,7 +87,10 @@ create temporary table nlp.qyh_interview_sample_expect_job as
   join
     nlp.job_profile d
   on
-    a.job_id = d.job_id;
+    a.job_id = d.job_id
+  distribute by rand() 
+  sort by rand()
+  limit 100000;
 
 create temporary table nlp.qyh_interview_sample_train as
   select
@@ -95,10 +98,7 @@ create temporary table nlp.qyh_interview_sample_train as
   from 
     nlp.qyh_interview_sample_expect_job
   where
-    ds < '2018-10-20'
-  distribute by rand() 
-  sort by rand()
-  limit 100000;
+    ds < '2018-10-20';
 
 create temporary table nlp.qyh_interview_sample_test as
   select
@@ -106,10 +106,7 @@ create temporary table nlp.qyh_interview_sample_test as
   from 
     nlp.qyh_interview_sample_expect_job
   where
-    ds >= '2018-10-20'
-  distribute by rand() 
-  sort by rand()
-  limit 10000;
+    ds >= '2018-10-20';
 
 insert overwrite local directory 'behavior'
   select
@@ -125,9 +122,41 @@ insert overwrite local directory 'behavior'
   on
     a.job_id = c.job_id;
 
+insert overwrite local directory 'train'
+  select
+    a.expect_id, a.job_id
+  from
+    nlp.qyh_interview_sample_train a
+  join
+    nlp.expect_profile b
+  on
+    a.expect_id = b.expect_id
+  join
+    nlp.job_profile c
+  on
+    a.job_id = c.job_id;
+
+insert overwrite local directory 'test'
+  select
+    a.expect_id, a.job_id
+  from
+    nlp.qyh_interview_sample_test a
+  join
+    nlp.expect_profile b
+  on
+    a.expect_id = b.expect_id
+  join
+    nlp.job_profile c
+  on
+    a.job_id = c.job_id;
+
+set hive.cli.print.header=true;
 insert overwrite local directory 'expect_profile'
   select
-    a.*
+    distinct(a.expect_id), 
+    a.geek_id, a.l3_name, a.city, 
+    a.gender, a.degree, a.fresh_graduate, 
+    a.apply_status, a.completion, a.cv
   from
     nlp.expect_profile a
   join
@@ -137,7 +166,10 @@ insert overwrite local directory 'expect_profile'
 
 insert overwrite local directory 'job_profile'
   select
-    a.*
+    distinct(a.job_id), 
+    a.boss_id, a.position, a.city, a.degree, 
+    a.experience, a.area_business_name, 
+    a.boss_title, a.is_hr, a.stage, a.jd
   from
     nlp.job_profile a
   join
