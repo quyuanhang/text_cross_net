@@ -28,6 +28,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--datain')
     parser.add_argument('--dataout')
+    parser.add_argument('--rand_sample', type=int, default=1)
     args = parser.parse_args()
 
     train_frame = pd.read_csv(
@@ -37,15 +38,19 @@ if __name__ == '__main__':
         dtype=str,
     )
     train_frame = build_negative_sample(train_frame)
-    train_frame.to_csv('{}.train'.format(args.dataout), sep='\001', header=None, index=False)
+    if args.rand_sample:
+        train_frame, test_frame = train_frame.iloc[:-20000], train_frame.iloc[-20000:]
+    else:
+        test_frame = pd.read_csv(
+            '{}.test'.format(args.datain),
+            sep='\001',
+            header=None,
+            dtype=str,
+        )
+        test_frame = test_frame.iloc[:20000]
+        test_frame = build_negative_sample(test_frame)
 
-    test_frame = pd.read_csv(
-        '{}.test'.format(args.datain),
-        sep='\001',
-        header=None,
-        dtype=str,
-    )
-    test_frame = build_negative_sample(test_frame)
+    train_frame.to_csv('{}.train'.format(args.dataout), sep='\001', header=None, index=False)
     test_frame.to_csv('{}.test'.format(args.dataout), sep='\001', header=None, index=False)
 
 
