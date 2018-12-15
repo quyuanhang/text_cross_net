@@ -1,5 +1,5 @@
 import tensorflow as tf
-from utils import MixData, Trainer
+from utils import MixData, Trainer, Visual
 from nets import TextCrossNet
 import argparse
 import os
@@ -22,8 +22,10 @@ def parse_args():
     parser.add_argument('--doc_len', type=int, default=100)
     parser.add_argument('--block_len', type=int, default=5)
     parser.add_argument('--mode', type=str, default='cross')
+    parser.add_argument('--cate_emb', default='diag')
     parser.add_argument('--lr', type=float, default=0.005)
     parser.add_argument('--reg', type=float, default=0)
+    parser.add_argument('--dropout', type=float, default=0)
     parser.add_argument('--n_epoch', type=int, default=10)
     # tf arguments
     parser.add_argument('--board_dir', default='board')
@@ -90,6 +92,8 @@ if __name__ == '__main__':
             emb_pretrain=embs,
             l2=args.reg,
             mode=args.mode,
+            cate_emb=args.cate_emb,
+            dropout=args.dropout,
         )
         writer.add_graph(sess.graph)
 
@@ -103,13 +107,13 @@ if __name__ == '__main__':
             n_epoch=args.n_epoch,
         )
 
-        visual_str = Trainer.visual(
+        visual_str = Visual.visual(
             sess=sess,
             model=model,
             test_data_fn=test_data,
             raw_data_fn=test_data_raw,
         )
-        with open('./data/visual.txt', 'w') as f:
+        with open('./data/visual.html', 'w') as f:
             f.write(visual_str)
 
         constant_graph = tf.graph_util.convert_variables_to_constants(

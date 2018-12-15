@@ -1,3 +1,8 @@
+start_time="2018-11-01"
+split_time="2018-11-08"
+end_time="2018-11-10"
+
+hive -e "
 create temporary table nlp.expect_profile as
 select
   a.expect_id, a.geek_id, a.l3_name, a.city, 
@@ -8,11 +13,7 @@ from
 join
   nlp.geek_cv_token b
 on
-  a.geek_id = b.geek_id
-where
-  a.l1_name = '技术'
-and
-  a.is_hr = 0;
+  a.geek_id = b.geek_id;
 
 create temporary table nlp.job_profile as
 select
@@ -24,88 +25,77 @@ from
 join
   nlp.job_desc_token b
 on
-  a.job_id = b.job_id
-where
-  a.l1_code = 100000;
+  a.job_id = b.job_id;
+
+create temporary table nlp.qyh_interview_sample_geek_job as
+  select
+    uid geek_id, actionp2 job_id, ds
+  from
+    dw_bosszp.bg_action
+  where
+    ds > '$start_time' and ds <= '$end_time'
+  and
+    action = 'chat-interview-accept'
+  and
+    bg = 0
+  group by
+    uid, actionp2, ds;
 
 create temporary table nlp.qyh_boss_add_friend as
   select
-    actionp2 job_id, actionp3 expect_id, min(ds), 2 action
+    actionp geek_id, actionp2 job_id, actionp3 expect_id
   from
-    dw_bosszp.bg_action a
-  join
-    nlp.job_profile b
-  on
-    a.actionp2 = b.job_id
+    dw_bosszp.bg_action
   where
-    ds >= '2018-11-01' and ds < '2018-11-22'
+    ds > '$start_time' and ds <= '$end_time'
   and
     action = 'detail-geek-addfriend'
   and
     bg = 1
   group by
-    actionp2, actionp3
-  distribute by rand()
-  sort by rand()
-  limit 100000;
+    actionp, actionp2, actionp3;
 
-create temporary table nlp.qyh_boss_view as
+create temporary table nlp.qyh_geek_add_friend as
   select
-    actionp3 job_id, actionp2 expect_id, min(ds), 1 action
+    uid geek_id, actionp2 job_id, actionp3 expect_id
   from
-    dw_bosszp.bg_action a
-  join
-    nlp.job_profile b
-  on
-    a.actionp3 = b.job_id    
+    dw_bosszp.bg_action
   where
-    ds >= '2018-11-01' and ds < '2018-11-22'
+    ds > '$start_time' and ds <= '$end_time'
   and
-    action = 'detail-geek'
+    action = 'detail-geek-addfriend'
   and
-    bg = 1
+    bg = 0
   group by
-    actionp2, actionp3
-  limit 100000;
+    uid, actionp2, actionp3;
 
-create temporary table nlp.qyh_boss_list as
-  select
-    jobid job_id, expectid expect_id, min(ds), 0 action
-  from
-    dw_bosszp.bg_list_action a
-  join
-    nlp.job_profile b
-  on
-    a.jobid = b.job_id
-  where
-    ds >= '2018-11-01' and ds < '2018-11-22'
-  and
-    bg = 1
-  group by
-    jobid, expectid
-  limit 100000;
+create temporary table nlp.qyh_add_friend as
+  select geek_id, job_id, expect_id
+  from nlp.qyh_boss_add_friend
+  union all
+  select geek_id, job_id, expect_id
+  from nlp.qyh_geek_add_friend;
 
-create temporary table nlp.qyh_view_add_sample as
+create temporary table nlp.qyh_interview_sample_expect_job as
   select 
-    job_id, expect_id, max(ds), max(action)
-  from (
-    select
-      job_id, expect_id, ds, action
-    from
-      nlp.qyh_boss_view
-    union all
-    select
-      job_id, expect_id, ds, action
-    from
-      nlp.qyh_boss_add_friend
-    union all
-    select
-      job_id, expect_id, ds, action
-    from
-      nlp.qyh_boss_list
-  ) a
-  group by
-    job_id, expect_id;
+    b.expect_id, b.job_id, a.ds
+  from 
+    nlp.qyh_interview_sample_geek_job a
+  join 
+    nlp.qyh_add_friend b
+  on 
+    a.geek_id = b.geek_id and a.job_id = b.job_id
+  join
+    nlp.expect_profile c
+  on
+    b.expect_id = c.expect_id
+  join
+    nlp.job_profile d
+  on
+    a.job_id = d.job_id
+  distribute by rand() 
+  sort by rand()
+  limit 200000;
 
 create temporary table nlp.qyh_interview_sample_train as
   select
@@ -113,7 +103,7 @@ create temporary table nlp.qyh_interview_sample_train as
   from 
     nlp.qyh_interview_sample_expect_job
   where
-    ds < '2018-11-15';
+    ds < '$split_time';
 
 create temporary table nlp.qyh_interview_sample_test as
   select
@@ -121,7 +111,7 @@ create temporary table nlp.qyh_interview_sample_test as
   from 
     nlp.qyh_interview_sample_expect_job
   where
-    ds >= '2018-11-15';
+    ds >= '$split_time';
 
 insert overwrite local directory 'behavior'
   select
@@ -191,3 +181,14 @@ insert overwrite local directory 'job_profile'
     nlp.qyh_interview_sample_expect_job b
   on
     a.job_id = b.job_id;
+"
+fp=multi_data2
+if [ -d "./$fp" ]; then
+  rm -r $fp
+fi
+mkdir $fp
+cat train/* > $fp/$fp.train
+cat test/* > $fp/$fp.test
+cat expect_profile/* > $fp/$fp.profile.expect
+cat job_profile/* > $fp/$fp.profile.job
+tar -cf $fp.tar $fp

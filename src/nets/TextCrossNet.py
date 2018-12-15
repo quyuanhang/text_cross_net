@@ -14,7 +14,10 @@ class TextCrossNet:
             emb_pretrain=[],
             l2=0,
             mode='cross',
-            top_k=5):
+            top_k=5,
+            cate_emb='diag',
+            dropout=0,
+    ):
 
         self.doc_len = doc_len
         self.block_len = block_len
@@ -24,6 +27,7 @@ class TextCrossNet:
         self.n_word = n_word
         self.l2 = l2
         self.top_k = top_k
+        self.training = tf.placeholder(dtype=tf.bool, name='training')
 
         if len(emb_pretrain) > 0:
             def myinit(*args, **kwargs):
@@ -48,12 +52,12 @@ class TextCrossNet:
                 if mode == 'text_cross':
                     features = self.matmul_flatten(jd, cv)
                 if mode == 'cross':
-                    features, self.related_feature = self.cross(jd, cv, features)
+                    features, self.related_feature = self.cross(jd, cv, features, cate_emb)
                 if mode == 'concat':
                     features = self.concat(jd, cv, features)
 
         with tf.variable_scope('classifier'):
-            self.predict = self.classifier(features)
+            self.predict = self.classifier(features, dropout)
         with tf.variable_scope('loss'):
             self.label = tf.placeholder(dtype=tf.int32, shape=None, name='labels')
             self.loss = self.loss_function()
@@ -117,15 +121,22 @@ class TextCrossNet:
         # x = tf.squeeze(x, axis=2)
         return x
 
-    def cross(self, jd: tf.Tensor, cv: tf.Tensor, cate: tf.Tensor):
+    def cross(self, jd: tf.Tensor, cv: tf.Tensor, cate: tf.Tensor, cate_emb='diag'):
+        if cate_emb == 'diag':
+            emb_dim = self.emb_dim
+        else:
+            emb_dim = self.emb_dim ** 2
         cate = keras.layers.Embedding(
             input_dim=self.n_features,
-            output_dim=self.emb_dim,
+            output_dim=emb_dim,
             embeddings_initializer='RandomNormal',
             # embeddings_regularizer=keras.regularizers.l1_l2(),
             name='cate_embedding'
         )(cate)
-        cate = tf.matrix_diag(cate)
+        if cate_emb == 'diag':
+            cate = tf.matrix_diag(cate)
+        else:
+            cate = tf.reshape(cate, shape=[-1, self.feature_len, self.emb_dim, self.emb_dim])
         jd = tf.tile(
             tf.reshape(jd, shape=(-1, 1, self.doc_len, self.emb_dim)),
             multiples=(1, self.feature_len, 1, 1),
@@ -135,22 +146,45 @@ class TextCrossNet:
             multiples=(1, self.feature_len, 1, 1)
         )
         cross = tf.matmul(jd, cate)
+        # cross = tf.nn.tanh(cross)
         cross = tf.matmul(cross, cv, transpose_b=True)
+        cross = tf.reshape(cross, shape=[-1, self.feature_len, self.doc_len ** 2])
+        cross = tf.nn.softmax(cross)
         cross = tf.layers.flatten(cross)
         related_features = tf.nn.top_k(cross, k=self.top_k)[1]
         return cross, related_features
 
-    def classifier(self, features):
-        # features = tf.layers.dropout(
-        #     inputs=features,
-        #     rate=0.01
-        # )
+    def classifier(self, features, dropout=0):
+        if dropout:
+            features = tf.layers.dropout(
+                inputs=features,
+                rate=dropout,
+                training=self.training,
+            )
+        features = tf.layers.dense(
+            features,
+            units=self.emb_dim ** 2,
+            activation=tf.nn.relu,
+            name='hidden1'
+        )
+        if dropout:
+            features = tf.layers.dropout(
+                inputs=features,
+                rate=dropout,
+                training=self.training,
+            )
         features = tf.layers.dense(
             features,
             units=self.emb_dim,
             activation=tf.nn.relu,
-            name='hidden'
+            name='hidden2'
         )
+        if dropout:
+            features = tf.layers.dropout(
+                inputs=features,
+                rate=dropout,
+                training=self.training,
+            )
         predict = tf.layers.dense(
             features,
             units=1,
