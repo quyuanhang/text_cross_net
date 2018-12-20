@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 from tqdm import tqdm
 from nets.TextCrossNet import TextCrossNet
 from utils.Trainer import feed_dict
@@ -12,10 +13,11 @@ def feature_fold(idx, doc_len, block_len):
         row = i_of_mat // doc_len
         col = i_of_mat % doc_len
         idx_fold.append([
-            row - block_len // 2,
-            row + block_len // 2,
-            col - block_len // 2,
-            col + block_len // 2,
+            row, row+1, col, col+1,
+            # max(row - block_len // 2, 0),
+            # min(row + block_len // 2 + 1, doc_len),
+            # max(col - block_len // 2, 0),
+            # min(col + block_len // 2 + 1, doc_len),
             i_of_feature
         ])
     return idx_fold
@@ -34,18 +36,19 @@ def find(l: list, i: int, items, mode):
 
 
 def highlight(word, attn):
-    html_color = '#%02X%02X%02X' % (255, int(255*(1 - attn)), int(255*(1 - attn)))
+    r, g, b = attn
+    html_color = '#%02X%02X%02X' % (int(255*(1-r)), int(255*(1-g)), int(255*(1-b)))
     return '<span style="background-color: {}">{}</span>'.format(html_color, word)
 
 
-def mk_html(doc, attns):
+def mk_html(doc, attns, end="<br><br>\n"):
     html = ""
     for word, attn in zip(doc, attns):
-        html += ' ' + highlight(
+        html += highlight(
             word,
             attn,
         )
-    return html + "<br><br>\n"
+    return html + end
 
 
 def feature_lookup(predictions, idxs, datas):
@@ -54,17 +57,24 @@ def feature_lookup(predictions, idxs, datas):
         if round(predict[0]) == 0:
             continue
         jid, eid, jd, cv, cate_features, label = data
-        jd_attn = [0] * len(jd)
-        cv_attn = [0] * len(cv)
+        jd_attn = np.zeros(shape=(len(jd), 3))
+        cv_attn = np.zeros(shape=(len(jd), 3))
         if label == 0:
             continue
-        for jd_idx1, jd_idx2, cv_idx1, cv_idx2, cate_idx in idx:
-            jd_attn[jd_idx1: jd_idx2+1] = [0.5] * (jd_idx2 - jd_idx1)
-            cv_attn[cv_idx1: cv_idx2+1] = [0.5] * (cv_idx2 - cv_idx1)
+        visual_str += "<p> jobid: {} expectid: {} </p>".format(jid, eid)
+        for i, row in enumerate(idx):
+            jd_idx1, jd_idx2, cv_idx1, cv_idx2, cate_idx = row
+            rgb = np.random.rand(1, 3) * 0.3 + 0.05
+            # cate_name = cate_features[cate_idx]
+            # rgb_tile = np.tile(rgb, [len(cate_name), 1])
+            # visual_str += mk_html(cate_name, rgb_tile, ' ')
+            rgb_tile = np.tile(rgb, [(jd_idx2-jd_idx1), 1])
+            jd_attn[jd_idx1: jd_idx2] += rgb_tile
+            rgb_tile = np.tile(rgb, [(cv_idx2-cv_idx1), 1])
+            cv_attn[cv_idx1: cv_idx2] += rgb_tile
         jd = mk_html(jd, jd_attn)
         cv = mk_html(cv, cv_attn)
-        visual_str += "<p> jobid: {} expectid: {} </p>".format(jid, eid)
-        visual_str += jd + '\n' + cv + '\n'
+        visual_str += "<br><br>\n" + jd + '\n' + cv + '\n'
         visual_str += "<p>==============================================</p>"
     return visual_str
 
@@ -105,11 +115,11 @@ def visual(
         model: TextCrossNet,
         test_data_fn,
         raw_data_fn,
-        data_len=1,
+        data_len=500000,
     ):
 
     predict = model.predict
-    related_features = model.related_feature
+    related_features = model.related_features
     test_data = test_data_fn()
     raw_data = raw_data_fn()
     visual_str = ""
@@ -125,7 +135,10 @@ def visual(
         batch_raw = next(raw_data)
         batch_visual_str = feature_lookup(predict_data, feature_indexs, batch_raw)
         visual_str += batch_visual_str
+        if len(visual_str) >= data_len:
+            break
     return visual_str
+
 
 
 

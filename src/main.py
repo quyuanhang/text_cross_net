@@ -14,15 +14,17 @@ def parse_args():
     parser.add_argument('--dataout', default='./data/multi_data')
     parser.add_argument('--emb_dim', type=int, default=64)
     parser.add_argument('--batch_size', type=int, default=512)
-    parser.add_argument('--data_pickle', default='./data/mix_data.pkl')
     # word2vec arguments
     parser.add_argument('--min_count', type=int, default=5)
-    parser.add_argument('--pad_zero', type=int, default=1)
+    # parser.add_argument('--pad_zero', type=int, default=1)
+    parser.add_argument('--load_emb', type=int, default=0)
     # model arguments
     parser.add_argument('--doc_len', type=int, default=100)
+    parser.add_argument('--sent_len', type=int, default=0)
     parser.add_argument('--block_len', type=int, default=5)
     parser.add_argument('--mode', type=str, default='cross')
     parser.add_argument('--cate_emb', default='diag')
+    parser.add_argument('--global_emb', type=int, default=0)
     parser.add_argument('--lr', type=float, default=0.005)
     parser.add_argument('--reg', type=float, default=0)
     parser.add_argument('--dropout', type=float, default=0)
@@ -39,8 +41,8 @@ if __name__ == '__main__':
     # 显卡占用
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda
 
-    if args.data_pickle and os.path.exists(args.data_pickle):
-        with open(args.data_pickle, 'rb') as f:
+    if os.path.exists('{}.pkl'.format(args.dataout)):
+        with open('{}.pkl'.format(args.dataout), 'rb') as f:
             mix_data = pickle.load(f)
     else:
         mix_data = MixData.MixData(
@@ -48,15 +50,11 @@ if __name__ == '__main__':
             fpout=args.dataout,
             wfreq=args.min_count,
             doc_len=args.doc_len,
+            sent_len=args.sent_len,
+            load_emb=args.load_emb,
         )
-        with open(args.data_pickle, 'wb') as f:
+        with open('{}.pkl'.format(args.dataout), 'wb') as f:
             pickle.dump(mix_data, f)
-
-    if args.pad_zero:
-        embs = np.random.normal(size=[len(mix_data.word_dict), args.emb_dim])
-        embs[:2] = 0
-    else:
-        embs = []
 
     train_data = lambda: mix_data.data_generator(
         fp='{}.train'.format(args.dataout),
@@ -78,22 +76,25 @@ if __name__ == '__main__':
     config.gpu_options.allow_growth = True
 
     with tf.Session(graph=tf.Graph(), config=config) as sess:
-        if os.path.exists(args.board_dir):
-            shutil.rmtree(args.board_dir)
-        writer = tf.summary.FileWriter(args.board_dir)
+        board_dir = './board/{}'.format(args.board_dir)
+        if os.path.exists(board_dir):
+            shutil.rmtree(board_dir)
+        writer = tf.summary.FileWriter(board_dir)
 
         model = TextCrossNet.TextCrossNet(
             doc_len=args.doc_len,
+            sent_len=args.sent_len,
             block_len=args.block_len,
             feature_len=len(mix_data.feature_name),
             emb_dim=args.emb_dim,
             n_feature=len(mix_data.feature_name_sparse),
             n_word=len(mix_data.word_dict),
-            emb_pretrain=embs,
+            emb_pretrain=mix_data.embs,
             l2=args.reg,
             mode=args.mode,
             cate_emb=args.cate_emb,
             dropout=args.dropout,
+            global_emb=args.global_emb,
         )
         writer.add_graph(sess.graph)
 

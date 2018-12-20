@@ -7,11 +7,15 @@ from sklearn import feature_extraction
 from scipy import sparse
 
 
+
+
 class MixData:
-    def __init__(self, fpin, fpout, wfreq, doc_len):
+    def __init__(self, fpin, fpout, wfreq, doc_len, sent_len=0, emb_dim=64, load_emb=0):
         self.fpin = fpin
         self.fpout = fpout
         self.doc_len = doc_len
+        self.sent_len = sent_len
+
         exp_features_names = [
             'expect_id',
             'geek_id',
@@ -37,13 +41,35 @@ class MixData:
             'stage',
             'jd'
         ]
-        fps = [
-            '{}.profile.job'.format(fpin),
-            '{}.profile.expect'.format(fpin)]
-        self.word_dict, self.word_list = self.build_dict(fps, wfreq)
 
-        require_exp_feature = exp_features_names[2:-1]
-        require_job_feature = job_features_names[2:-1]
+        require_exp_feature = [
+            'l3_name',
+            'city',
+            'gender',
+            'degree',
+            'fresh_graduate',
+        ]
+        require_job_feature = [
+            'position',
+            'city',
+            'degree',
+            'experience',
+            'boss_title',
+            'is_hr',
+            'stage',
+        ]
+
+        if load_emb:
+            self.word_dict, self.embs = self.load_embedding(
+                "{}.word_emb".format(fpout), emb_dim)
+        else:
+            fps = [
+                '{}.profile.job'.format(fpin),
+                '{}.profile.expect'.format(fpin)]
+            self.word_dict = self.build_dict(fps, wfreq)
+            self.embs = np.random.normal(size=[len(self.word_dict), emb_dim])
+            self.embs[:2] = 0
+
         self.feature_name = require_exp_feature + require_job_feature
         self.exp_to_row, self.exp_feature_dicts, self.exp_features, \
             exp_features_names_sparse, self.exp_docs, self.exp_doc_raw = \
@@ -60,6 +86,27 @@ class MixData:
                 requir_feature_name=require_job_feature,
             )
         self.feature_name_sparse = job_features_names_sparse + exp_features_names_sparse
+        print("num of raw feature: {}\nnum of sparse feature: {}".format(
+            len(self.feature_name),
+            len(self.feature_name_sparse)))
+
+    @staticmethod
+    def load_embedding(fp, emb_dim):
+        words = ['__pad__', '__unk__']
+        embs = [[0] * emb_dim] * 2
+        with open(fp) as f:
+            print('loading embs ...')
+            for line in tqdm(f):
+                data = line.strip().split()
+                if len(data) != emb_dim + 1:
+                    continue
+                word = data[0]
+                emb = [float(x) for x in data[1:]]
+                words.append(word)
+                embs.append(emb)
+        word_dict = {k: v for v, k in enumerate(words)}
+        embs = np.array(embs, dtype=np.float32)
+        return word_dict, embs
 
     @staticmethod
     def build_dict(fps, w_freq):
@@ -75,7 +122,7 @@ class MixData:
         word_list = ['__pad__', '__unk__'] + word_list
         word_dict = {k: v for v, k in enumerate(word_list)}
         print('n_words: {}'.format(len(word_dict)), len(word_list))
-        return word_dict, word_list
+        return word_dict
 
     def build_features(self, fp, feature_name, requir_feature_name, one_hot=True):
         n_feature = len(feature_name)
@@ -97,11 +144,13 @@ class MixData:
             category_features_list.append(features_dict)
             # text feature
             doc = features[-1].strip()
-            doc = doc.replace('\t', ' , ')
-            doc = doc.split(' ')
-            raw_doc_list.append(doc)
-            doc = [self.word_dict.get(word, 0) for word in doc]
-            docs_list.append(doc)
+            if self.sent_len:
+                raw_doc, id_doc = self.doc2d(doc)
+            else:
+                raw_doc = doc.split(' ')
+                id_doc = [self.word_dict.get(word, 0) for word in raw_doc]
+            raw_doc_list.append(raw_doc)
+            docs_list.append(id_doc)
         id_to_row = {k: v for v, k in enumerate(ids_list)}
         docs_matrix = np.array(docs_list)
         if one_hot:
@@ -111,6 +160,20 @@ class MixData:
             return id_to_row, category_features_list, category_features_matrix, category_features_name, docs_matrix, raw_doc_list
         else:
             return id_to_row, category_features_list, docs_matrix, raw_doc_list
+
+    def doc2d(self, doc):
+        doc = re.split('[，；。,;]', doc)
+        raw_doc = [sent.replace(' ', '') + '。' for sent in doc]
+        id_doc = []
+        for sent in doc[:self.doc_len]:
+            sent = sent.strip().split(' ')
+            sent = [self.word_dict.get(word, 0) for word in sent][:self.sent_len]
+            if len(sent) < self.sent_len:
+                sent += [0] * (self.sent_len - len(sent))
+            id_doc.append(sent)
+        if len(id_doc) < self.doc_len:
+            id_doc += [[0] * self.sent_len] * (self.doc_len - len(id_doc))
+        return raw_doc, id_doc
 
     def feature_lookup(self, idstr, idtype, raw=0):
         if idtype == 'expect':
@@ -163,12 +226,15 @@ class MixData:
 
 if __name__ == '__main__':
     mix_data = MixData(
-        '../Data/multi_data/multi_data',
-        './data/multi_data',
-        5,
-        100,
+        fpin='../Data/multi_data4/multi_data4',
+        fpout='./data/multi_data4',
+        wfreq=5,
+        doc_len=50,
+        sent_len=50,
+        emb_dim=64,
+        load_emb=1,
     )
-    fp = './data/multi_data.train'
+    fp = './data/multi_data4.train'
     g = mix_data.data_generator(fp, 2)
-    print(next(g))
+    # print(next(g))
     print("done")

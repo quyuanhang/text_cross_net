@@ -5,9 +5,21 @@ import numpy as np
 
 
 def binary(s):
-    if int(s) > 0:
+    if int(s) > 2:
         return 1
-    return s
+    return 0
+
+
+def calibration(frame, rate):
+    if len(frame[frame['label'] == 1]) < rate * len(frame[frame['label'] == 0]):
+        frame = pd.concat([
+            frame[frame['label'] == 1],
+            frame[frame['label'] == 0].sample(frac=rate)
+        ])
+        col = frame.columns
+        frame = pd.DataFrame(np.random.permutation(frame.values))
+        frame.columns = col
+    return frame
 
 
 if __name__ == '__main__':
@@ -25,6 +37,10 @@ if __name__ == '__main__':
     )
     train_frame.columns = ['eid', 'jid', 'label']
     train_frame['label'] = train_frame['label'].map(binary)
+    train_frame = calibration(train_frame, 0.2)
+
+    # train_frame = train_frame[train_frame['label'] != '0']
+    # train_frame['label'] = train_frame['label'].map(lambda x: int(x=='2'))
 
     if args.rand_sample:
         train_frame, test_frame = train_frame.iloc[:-20000], train_frame.iloc[-20000:]
@@ -38,6 +54,7 @@ if __name__ == '__main__':
         test_frame = test_frame.iloc[:20000]
         test_frame.columns = ['eid', 'jid', 'label']
         test_frame['label'] = test_frame['label'].map(binary)
+        test_frame = calibration(test_frame, 0.2)
 
     train_frame.to_csv('{}.train'.format(args.dataout), sep='\001', header=None, index=False)
     test_frame.to_csv('{}.test'.format(args.dataout), sep='\001', header=None, index=False)
