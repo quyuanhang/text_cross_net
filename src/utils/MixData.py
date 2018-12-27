@@ -7,8 +7,6 @@ from sklearn import feature_extraction
 from scipy import sparse
 
 
-
-
 class MixData:
     def __init__(self, fpin, fpout, wfreq, doc_len, sent_len=0, emb_dim=64, load_emb=0):
         self.fpin = fpin
@@ -129,19 +127,17 @@ class MixData:
         with open(fp) as f:
             data = f.read().strip().split('\n')
         print('split raw data ...')
-        ids_list, category_features_list, docs_list, raw_doc_list = [], [], [], []
+        data_list = []
         for line in tqdm(data):
             features = line.split('\001')
             if len(features) != n_feature:
                 continue
             # id
             cid = features[0]
-            ids_list.append(cid)
             # category feature
             if one_hot:
                 features_dict = dict(zip(feature_name, features))
                 features_dict = {k: features_dict[k] for k in requir_feature_name}
-            category_features_list.append(features_dict)
             # text feature
             doc = features[-1].strip()
             if self.sent_len:
@@ -149,8 +145,8 @@ class MixData:
             else:
                 raw_doc = doc.split(' ')
                 id_doc = [self.word_dict.get(word, 0) for word in raw_doc]
-            raw_doc_list.append(raw_doc)
-            docs_list.append(id_doc)
+            data_list.append([cid, features_dict, id_doc, raw_doc])
+        ids_list, category_features_list, docs_list, raw_doc_list = list(zip(*data_list))
         id_to_row = {k: v for v, k in enumerate(ids_list)}
         docs_matrix = np.array(docs_list)
         if one_hot:

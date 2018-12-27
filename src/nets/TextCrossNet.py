@@ -59,47 +59,56 @@ class TextCrossNet:
         else:
             if sent_len:
                 with tf.variable_scope('jd_cnn'):
-                    jd = self.feature_emb(jd, mode='word', init=self.emb_init, flatten=False, name="jd_emb")
-                    jd2 = self.sentence_cnn2(jd)
-                    jd = self.sentence_cnn(jd)
+                    jd1 = self.feature_emb(jd, mode='word', init=self.emb_init, flatten=False, name="jd_emb")
+                    jd1 = self.sentence_cnn(jd1)
                 with tf.variable_scope('cv_cnn'):
-                    cv = self.feature_emb(cv, mode='word', init=self.emb_init, flatten=False, name="cv_emb")
-                    cv2 = self.sentence_cnn2(cv)
-                    cv = self.sentence_cnn(cv)
+                    cv1 = self.feature_emb(cv, mode='word', init=self.emb_init, flatten=False, name="cv_emb")
+                    cv1 = self.sentence_cnn(cv1)
+                # with tf.variable_scope('jd_cnn2'):
+                #     jd2 = self.feature_emb(jd, mode='word', init=self.emb_init, flatten=False, name="jd_emb")
+                #     jd2 = self.sentence_cnn2(jd2)
+                # with tf.variable_scope('cv_cnn2'):
+                #     cv2 = self.feature_emb(cv, mode='word', init=self.emb_init, flatten=False, name="cv_emb")
+                #     cv2 = self.sentence_cnn2(cv2)
             else:
                 with tf.variable_scope('jd_cnn'):
-                    jd = self.text_cnn(jd, global_emb=global_emb)
+                    jd1 = self.text_cnn(jd, global_emb=global_emb)
                 with tf.variable_scope('cv_cnn'):
-                    cv = self.text_cnn(cv, global_emb=global_emb)
-            with tf.variable_scope('cross'):
-                if mode == 'text_concat':
-                    features = self.concat_reduce(jd, cv)
-                if mode == 'text_cross':
-                    features = self.feature_emb(features)
-                    features_ = self.matmul_flatten(jd, cv)
-                    features = tf.concat([features, features_], axis=1)
-                if mode == 'cross':
-                    features = self.cross(jd, cv, features, cate_emb)
-                if mode == 'concat':
-                    # features = self.concat(jd, cv, features)
-                    deep_features = tf.concat((jd2, cv2), axis=1)
-                    features = self.feature_emb(features)
-                    deep_features = tf.concat((deep_features, features), axis=1)
-                    features = deep_features
-                if mode == 'wd':
-                    deep_features = self.concat(jd, cv, features)
-                    wide_features = self.cross(jd, cv, features)
-                if mode == 'wd2':
-                    wide_features = self.cross(jd, cv, features)
-                    deep_features = tf.concat((jd2, cv2), axis=1)
-                    features = self.feature_emb(features)
-                    deep_features = tf.concat((deep_features, features), axis=1)
+                    cv1 = self.text_cnn(cv, global_emb=global_emb)
+            if mode == 'text_concat':
+                features = self.concat_reduce(jd1, cv1)
+            if mode == 'text_cross':
+                features = self.feature_emb(features)
+                features_ = self.matmul_flatten(jd1, cv1)
+                features = tf.concat([features, features_], axis=1)
+            if mode == 'cross':
+                features = self.cross(jd1, cv1, features, cate_emb)
+            if mode in ('concat', 'deep'):
+                features = self.concat(jd1, cv1, features)
+            if mode == 'wd':
+                with tf.variable_scope('deep'):
+                    deep_features = self.concat(jd1, cv1, features)
+                with tf.variable_scope('wide'):
+                    wide_features = self.cross(jd1, cv1, features)
+            # if mode == 'wd2':
+            #     with tf.variable_scope('wide'):
+            #         wide_features = self.cross(jd1, cv1, features)
+            #     with tf.variable_scope('deep'):
+            #         deep_features = tf.concat((jd2, cv2), axis=1)
+            #         features = self.feature_emb(features)
+            #         deep_features = tf.concat((deep_features, features), axis=1)
 
         with tf.variable_scope('classifier'):
             if mode in ("wd", "wd2"):
                 self.predict = self.classifier2(wide_features, deep_features, dropout)
+            # elif mode == 'cross':
+            #     self.predict = tf.nn.sigmoid(
+            #         self.lr(features))
+            elif mode == 'deep':
+                self.predict = tf.nn.sigmoid(
+                    self.mlp(features, dropout))
             else:
-                self.predict = self.classifier(features, dropout)
+                self.predict = self.classifier2(features, features, dropout)
         with tf.variable_scope('loss'):
             self.label = tf.placeholder(dtype=tf.int32, shape=None, name='labels')
             self.loss = self.loss_function()
@@ -107,7 +116,14 @@ class TextCrossNet:
     @staticmethod
     def concat_reduce(jd, cv):
         features = tf.concat([jd, cv], axis=2)
-        features = tf.reduce_mean(features, axis=1)
+        features = tf.concat(
+            (
+                tf.reduce_mean(features, axis=1),
+                tf.reduce_max(features, axis=1),
+            ),
+            axis=-1,
+        )
+        # features = tf.reduce_mean(features, axis=1)
         return features
 
     @staticmethod
@@ -171,9 +187,10 @@ class TextCrossNet:
             name='cnn',
         )
         x = tf.reshape(x, shape=(-1, self.doc_len, x.shape.as_list()[-3], x.shape.as_list()[-1]))
-        x = tf.concat(
-            (tf.reduce_max(x, axis=-2), tf.reduce_mean(x, axis=-2)),
-            axis=-1)
+        # x = tf.concat(
+        #     (tf.reduce_max(x, axis=-2), tf.reduce_mean(x, axis=-2)),
+        #     axis=-1)
+        x = tf.reduce_max(x, axis=-2)
         return x
 
     def sentence_cnn2(self, x: tf.Tensor):
@@ -198,7 +215,6 @@ class TextCrossNet:
             cate_emb_dim = emb_dim ** 2
         else:
             cate_emb_dim = emb_dim
-        # cate_flatten = self.feature_emb(cate)
         cate = keras.layers.Embedding(
             input_dim=self.n_features,
             output_dim=cate_emb_dim,
@@ -209,22 +225,46 @@ class TextCrossNet:
             cate = tf.matrix_diag(cate)
         else:
             cate = tf.reshape(cate, shape=[-1, self.feature_len, emb_dim, emb_dim])
-        jd = tf.tile(
-            tf.expand_dims(jd, axis=1),
-            multiples=(1, self.feature_len, 1, 1),
-        )
-        cv = tf.tile(
-            tf.expand_dims(cv, axis=1),
-            multiples=(1, self.feature_len, 1, 1)
-        )
+        cate = tf.reduce_mean(cate, axis=1)
         cross = tf.matmul(jd, cate)
         cross = tf.matmul(cross, cv, transpose_b=True)
-        cross = tf.reduce_mean(cross, axis=1)
         cross = tf.layers.flatten(cross)
-        self.related_features = tf.nn.top_k(cross, k=self.top_k)[1]
-        # cross = tf.concat([cross, cate_flatten], axis=1)
         cross = tf.nn.softmax(cross)
+        self.related_features = tf.nn.top_k(cross, k=self.top_k)
         return cross
+
+    # def cross(self, jd: tf.Tensor, cv: tf.Tensor, cate: tf.Tensor, cate_emb='diag'):
+    #     emb_dim = jd.shape.as_list()[-1]
+    #     if cate_emb == "full":
+    #         cate_emb_dim = emb_dim ** 2
+    #     else:
+    #         cate_emb_dim = emb_dim
+    #     cate = keras.layers.Embedding(
+    #         input_dim=self.n_features,
+    #         output_dim=cate_emb_dim,
+    #         embeddings_initializer='RandomNormal',
+    #         name='cate_embedding'
+    #     )(cate)
+    #     if cate_emb == 'diag':
+    #         cate = tf.matrix_diag(cate)
+    #     else:
+    #         cate = tf.reshape(cate, shape=[-1, self.feature_len, emb_dim, emb_dim])
+    #
+    #     jd = tf.tile(
+    #         tf.expand_dims(jd, axis=1),
+    #         multiples=(1, self.feature_len, 1, 1),
+    #     )
+    #     cv = tf.tile(
+    #         tf.expand_dims(cv, axis=1),
+    #         multiples=(1, self.feature_len, 1, 1)
+    #     )
+    #     cross = tf.matmul(jd, cate)
+    #     cross = tf.matmul(cross, cv, transpose_b=True)
+    #     cross = tf.reduce_mean(cross, axis=1)
+    #     cross = tf.layers.flatten(cross)
+    #     cross = tf.nn.softmax(cross)
+    #     self.related_features = tf.nn.top_k(cross, k=self.top_k)
+    #     return cross
 
     @staticmethod
     def cross_with_feature(feature_mat, jd, cv):
@@ -270,6 +310,19 @@ class TextCrossNet:
         return
 
     def mlp(self, features, dropout=0):
+        # features = tf.layers.batch_normalization(features)
+        # if dropout:
+        #     features = tf.layers.dropout(
+        #         inputs=features,
+        #         rate=dropout,
+        #         training=self.training,
+        #     )
+        # features = tf.layers.dense(
+        #     features,
+        #     units=self.emb_dim * 2,
+        #     activation=tf.nn.relu,
+        # )
+        features = tf.layers.batch_normalization(features)
         if dropout:
             features = tf.layers.dropout(
                 inputs=features,
@@ -280,8 +333,8 @@ class TextCrossNet:
             features,
             units=self.emb_dim,
             activation=tf.nn.relu,
-            name='hidden1'
         )
+        features = tf.layers.batch_normalization(features)
         predict = tf.layers.dense(
             features,
             units=1,
@@ -323,6 +376,12 @@ class TextCrossNet:
         )
         return predict
 
+    def classifier3(self, wfeatures, dfeatures, dropout=0):
+        wide = self.lr(wfeatures)
+        deep = self.mlp(dfeatures, dropout=dropout)
+        predict = tf.nn.sigmoid(tf.add(wide, deep))
+        return predict
+
     def loss_function(self):
         predict = tf.squeeze(self.predict)
         loss = tf.losses.log_loss(self.label, predict)
@@ -341,6 +400,6 @@ if __name__ == '__main__':
         shutil.rmtree(path)
     with tf.Session(graph=tf.Graph()) as sess:
         writer = tf.summary.FileWriter(path)
-        text_cross_net = TextCrossNet(50, 50, 5, 15, 128, 5000, 20000, mode='wd2', dropout=0.3)
+        text_cross_net = TextCrossNet(50, 50, 5, 15, 128, 5000, 20000, mode='wd', dropout=0.3)
         writer.add_graph(sess.graph)
     writer.close()

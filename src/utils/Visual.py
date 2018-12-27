@@ -41,40 +41,44 @@ def highlight(word, attn):
     return '<span style="background-color: {}">{}</span>'.format(html_color, word)
 
 
-def mk_html(doc, attns, end="<br><br>\n"):
+def mk_html(doc, attns, sep='', end="<br><br>\n"):
     html = ""
     for word, attn in zip(doc, attns):
         html += highlight(
             word,
             attn,
         )
+        html += sep
     return html + end
 
 
-def feature_lookup(predictions, idxs, datas):
+def feature_lookup(predictions, idxs, weights, datas):
     visual_str = ""
-    for predict, idx, data in zip(predictions, idxs, datas):
+    for predict, idx, weight, data in zip(predictions, idxs, weights, datas):
         if round(predict[0]) == 0:
             continue
         jid, eid, jd, cv, cate_features, label = data
         jd_attn = np.zeros(shape=(len(jd), 3))
         cv_attn = np.zeros(shape=(len(jd), 3))
+        weight_attn = np.zeros(shape=(len(weight), 3))
         if label == 0:
             continue
         visual_str += "<p> jobid: {} expectid: {} </p>".format(jid, eid)
         for i, row in enumerate(idx):
             jd_idx1, jd_idx2, cv_idx1, cv_idx2, cate_idx = row
             rgb = np.random.rand(1, 3) * 0.3 + 0.05
+            weight_attn[i] = rgb
             # cate_name = cate_features[cate_idx]
             # rgb_tile = np.tile(rgb, [len(cate_name), 1])
-            # visual_str += mk_html(cate_name, rgb_tile, ' ')
+            # visual_str += mk_html(cate_name, rgb_tile, end=' ')
             rgb_tile = np.tile(rgb, [(jd_idx2-jd_idx1), 1])
             jd_attn[jd_idx1: jd_idx2] += rgb_tile
             rgb_tile = np.tile(rgb, [(cv_idx2-cv_idx1), 1])
             cv_attn[cv_idx1: cv_idx2] += rgb_tile
+        w = mk_html(weight, weight_attn, sep=' ')
         jd = mk_html(jd, jd_attn)
         cv = mk_html(cv, cv_attn)
-        visual_str += "<br><br>\n" + jd + '\n' + cv + '\n'
+        visual_str += "<br><br>\n" + w + "\n" + jd + '\n' + cv + '\n'
         visual_str += "<p>==============================================</p>"
     return visual_str
 
@@ -115,7 +119,7 @@ def visual(
         model: TextCrossNet,
         test_data_fn,
         raw_data_fn,
-        data_len=500000,
+        data_len=1000000,
     ):
 
     predict = model.predict
@@ -127,13 +131,13 @@ def visual(
         if i > data_len:
             break
         fd = feed_dict(batch)
-        predict_data, feature_indexs = sess.run([predict, related_features], feed_dict=fd)
-        x = 1
+        predict_data, related_features_data = sess.run([predict, related_features], feed_dict=fd)
+        feature_weights, feature_indexs = related_features_data
         feature_indexs = [
             feature_fold(idx, model.doc_len, model.block_len)
             for idx in feature_indexs]
         batch_raw = next(raw_data)
-        batch_visual_str = feature_lookup(predict_data, feature_indexs, batch_raw)
+        batch_visual_str = feature_lookup(predict_data, feature_indexs, feature_weights, batch_raw)
         visual_str += batch_visual_str
         if len(visual_str) >= data_len:
             break

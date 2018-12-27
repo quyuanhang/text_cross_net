@@ -117,11 +117,11 @@ if __name__ == '__main__':
         with open('./data/visual.html', 'w') as f:
             f.write(visual_str)
 
-        constant_graph = tf.graph_util.convert_variables_to_constants(
-            sess, sess.graph_def, ['classifier/output/Sigmoid'])
+        # constant_graph = tf.graph_util.convert_variables_to_constants(
+        #     sess, sess.graph_def, ['classifier/output/Sigmoid'])
 
-        with tf.gfile.FastGFile('./data/' + 'model.pb', mode='wb') as f:
-            f.write(constant_graph.SerializeToString())
+        # with tf.gfile.FastGFile('./data/' + 'model.pb', mode='wb') as f:
+        #     f.write(constant_graph.SerializeToString())
 
     writer.close()
 
